@@ -1,3 +1,4 @@
+#A Best practice instead of hardcoding connection strings in everyone's code, we create ONE config file that everyone can use 
 spark:
   master_url: "spark://localhost:7077"
   master_ui: "http://localhost:8080"
