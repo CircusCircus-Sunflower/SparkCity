@@ -1,0 +1,6 @@
+zone_id,zone_name,zone_type,lat_min,lat_max,lon_min,lon_max,population
+ZONE_01,Downtown,Commercial,39.93,39.96,-75.18,-75.15,45000
+ZONE_02,University District,Mixed-Use,39.96,39.99,-75.18,-75.15,32000
+ZONE_03,Industrial Park,Industrial,39.93,39.96,-75.21,-75.18,8000
+ZONE_04,Residential North,Residential,39.96,39.99,-75.21,-75.18,52000
+ZONE_05,Residential South,Residential,39.9,39.93,-75.18,-75.15,48000
