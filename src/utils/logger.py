@@ -2,6 +2,8 @@ import logging
 import sys
 from datetime import datetime
 
+# creates logs with timestamps and consistent formatting.
+
 
 def setup_logger(name: str, level=logging.INFO) -> logging.Logger:
     """
@@ -39,10 +41,5 @@ def setup_logger(name: str, level=logging.INFO) -> logging.Logger:
     return logger
 
 
-# Example usage
 if __name__ == "__main__":
     logger = setup_logger(__name__)
-    logger.info("✅ Logger initialized")
-    logger.warning("⚠️ This is a warning")
-    logger.error("❌ This is an error")
-    print("✅ Logger working!")

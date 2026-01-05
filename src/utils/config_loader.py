@@ -3,6 +3,7 @@ import os
 from typing import Dict, Any
 
 
+# reads our team_config.yaml and provides easy access to settings.
 class Config:
     """
     Configuration manager for SparkCity project
@@ -75,11 +76,5 @@ class Config:
         return self.config.get("data_paths", {})
 
 
-# Example usage
 if __name__ == "__main__":
     print("Testing config loader...")
-    config = Config()
-    print(f"✅ Spark master: {config.get('spark', 'master_url')}")
-    print(f"✅ DB host: {config.get('postgres', 'host')}")
-    print(f"✅ Raw data path: {config.get('data_paths', 'raw')}")
-    print("✅ Config loader working!")

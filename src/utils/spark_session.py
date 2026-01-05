@@ -2,6 +2,8 @@ from pyspark.sql import SparkSession
 import yaml
 import os
 
+# connects your Python code to the Spark Clusster running in Docker.
+
 
 def load_config():
     """Load configuration from team_config.yaml"""
@@ -58,9 +60,4 @@ def stop_spark_session(spark):
 
 # Example usage for testing
 if __name__ == "__main__":
-    print("Testing Spark session creation...")
-    spark = get_spark_session("TestApp")
-    print(f"Spark session created: {spark.version}")
-    print(f"Master: {spark.sparkContext.master}")
-    stop_spark_session(spark)
-    print("Spark session stopped")
+    print("Testing Spark session creation")
