@@ -474,6 +474,14 @@ smart-city-iot-pipeline/
 - **Project Issues:** Use GitHub Issues for technical questions
 - **Daily Check-ins:** Instructor availability for guidance
 
+### 🔧 Common Installation Issues
+
+**Issue:  `pg_config executable not found` error during pip install**
+
+**Solution:** If you see this error, manually install the binary version:
+```bash
+pip3 install psycopg2-binary
+
 ### 🎉 Success Metrics
 
 By project completion, students will have:
