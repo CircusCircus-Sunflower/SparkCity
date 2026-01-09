@@ -1,0 +1,14 @@
+{
+  "file": "data/samples/traffic_sample.csv",
+  "before": {
+    "rows": 3,
+    "columns": [
+      "sensor_id",
+      "timestamp",
+      "count",
+      "speed"
+    ],
+    "sample_rows": [
+      [
+        "sensorA",
+        
