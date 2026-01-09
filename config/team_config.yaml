@@ -1,0 +1,21 @@
+#A Best practice instead of hardcoding connection strings in everyone's code, we create ONE config file that everyone can use 
+spark:
+  master_url: "spark://localhost:7077"
+  master_ui: "http://localhost:8080"
+  app_name: "SparkCity"
+  executor_memory: "2g"
+  driver_memory: "1g"
+
+postgres:
+  host: "localhost"
+  port: 5432
+  database: "smartcity"
+  user: "postgres"
+  password: "postgres"
+  jdbc_url: "jdbc:postgresql://localhost:5432/smartcity"
+
+data_paths:
+  raw: "./data/raw"
+  processed: "./data/processed"
+  reference: "./data/reference"
+  samples: "./data/samples"
