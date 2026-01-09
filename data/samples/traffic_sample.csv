@@ -1,0 +1,4 @@
+sensor_id,timestamp,count,speed
+sensorA,2025-01-01 08:00:00,100,35.5
+sensorB,2025-01-01 08:01:00,110,40.0
+sensorC,2025-01-01 08:02:00,95,
