@@ -1,27 +1,47 @@
 """
-Minimal validators for MVP (check_nulls, check_duplicates, check_ranges, iqr_outliers, impute_median)
+Type-aware validators for the MVP cleaning pipeline.
+
+Includes:
+- get_numeric_columns
+- check_nulls
+- check_duplicates
+- iqr_outlier_bounds
+- impute_numeric_median
 """
 from typing import Dict, List, Optional, Tuple
 from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
+from pyspark.sql.types import NumericType
 
 def get_numeric_columns(df: DataFrame) -> List[str]:
-    return [f.name for f in df.schema.fields if f.dataType.simpleString() in ("double", "float", "int", "long", "decimal")]
+    """Return list of numeric column names."""
+    return [f.name for f in df.schema.fields if isinstance(f.dataType, NumericType)]
+
+def is_numeric_field_type(field_type) -> bool:
+    """Return True if the schema field type is numeric."""
+    return isinstance(field_type, NumericType)
 
 def check_nulls(df: DataFrame, threshold: float = 0.2) -> Dict[str, float]:
     """
     Return columns whose null fraction exceeds threshold.
+    Uses type-aware checks to avoid calling isnan on non-numeric fields.
     Output: dict of col -> percent_null (0..100)
     """
     total = df.count()
     if total == 0:
         return {}
     results = {}
-    for c in df.columns:
-        # some columns may not support isnan; use try/except
+    for f in df.schema.fields:
+        c = f.name
         try:
-            null_count = df.filter(F.col(c).isNull() | F.isnan(F.col(c))).count()
+            if is_numeric_field_type(f.dataType):
+                # numeric types: check NULL or NaN
+                null_count = df.filter(F.col(c).isNull() | F.isnan(F.col(c))).count()
+            else:
+                # non-numeric: only check NULLs and empty strings
+                null_count = df.filter(F.col(c).isNull() | (F.col(c) == "")).count()
         except Exception:
+            # fallback: conservative approach - count nulls only
             null_count = df.filter(F.col(c).isNull()).count()
         pct = (null_count / total) * 100
         if pct >= (threshold * 100):
@@ -45,29 +65,7 @@ def check_duplicates(df: DataFrame, subset: Optional[List[str]] = None) -> Dict[
         sample = [tuple(r) for r in sample_rows]
     return {"dup_count": int(dup_count), "sample": sample}
 
-def check_ranges(df: DataFrame, rules: Dict[str, Tuple[Optional[float], Optional[float]]] = None) -> Dict[str, Dict]:
-    """
-    rules: dict of column -> (min_value or None, max_value or None)
-    Returns a dict for columns that violate the rules with counts.
-    """
-    if not rules:
-        return {}
-    results = {}
-    total = df.count()
-    for col, (minv, maxv) in rules.items():
-        cond = None
-        if minv is not None:
-            cond = (F.col(col) < F.lit(minv))
-        if maxv is not None:
-            c2 = (F.col(col) > F.lit(maxv))
-            cond = c2 if cond is None else (cond | c2)
-        if cond is not None:
-            bad = df.filter(cond).count()
-            if bad > 0:
-                results[col] = {"bad_count": int(bad), "percent": round(bad / total * 100, 3) if total > 0 else 0.0}
-    return results
-
-def iqr_outlier_bounds(df: DataFrame, col: str) -> Tuple[float, float]:
+def iqr_outlier_bounds(df: DataFrame, col: str) -> Tuple[Optional[float], Optional[float]]:
     """
     Compute (lower, upper) bounds using IQR (1.5 * IQR).
     Returns numeric bounds; if column non-numeric or can't compute, returns (None, None).

@@ -1,0 +1,319 @@
+"""
+Cleaning pipeline (CSV/JSON/Parquet) - MVP version.
+
+Behavior:
+- Finds files in data/samples with extensions: .csv, .json, .parquet
+- Reads each with Spark (json/parquet/csv)
+- Runs basic validators, drops duplicates, imputes numeric medians, caps IQR outliers
+- Writes cleaned CSV: data/processed/<basename>_cleaned.csv
+- Writes JSON report: data/processed/<basename>_quality.json
+- Continues processing other files if one fails (collects errors)
+"""
+import glob
+import json
+import os
+import shutil
+from pathlib import Path
+from typing import Dict
+
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+
+from data_quality.validators import (
+    check_nulls,
+    check_duplicates,
+    iqr_outlier_bounds,
+    impute_numeric_median,
+    get_numeric_columns,
+)
+
+
+def create_spark(app_name: str = "CleaningPipeline"):
+    return (
+        SparkSession.builder.master("local[1]").appName(app_name)
+        .config("spark.driver.bindAddress", "127.0.0.1")
+        .config("spark.driver.host", "127.0.0.1")
+        .getOrCreate()
+    )
+
+
+def summarize_df(df, n_sample: int = 3) -> dict:
+    """
+    Small summary that returns rows, columns and sample_rows as JSON-friendly values.
+    """
+    total = df.count()
+    cols = df.columns
+    samples = []
+    for r in df.limit(n_sample).collect():
+        row_vals = []
+        for v in r:
+            if v is None:
+                row_vals.append(None)
+            else:
+                try:
+                    iso = v.isoformat()
+                    row_vals.append(iso)
+                except Exception:
+                    row_vals.append(str(v))
+        samples.append(row_vals)
+    summary = {"rows": int(total), "columns": cols, "sample_rows": samples}
+    return summary
+
+
+def save_single_csv_from_df(df, out_path):
+    tmp_dir = out_path + ".tmp"
+    df.coalesce(1).write.mode("overwrite").option("header", "true").csv(tmp_dir)
+    parts = glob.glob(os.path.join(tmp_dir, "part-*"))
+    if parts:
+        os.replace(parts[0], out_path)
+    else:
+        # fallback to parquet
+        df.write.mode("overwrite").parquet(out_path + ".parquet")
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def process_df_and_write(df, src_path: str, out_dir: str = "data/processed"):
+    base = Path(src_path).stem
+    before = summarize_df(df)
+
+    # validators
+    nulls = check_nulls(df, threshold=0.2)
+    dups = check_duplicates(df, subset=None)
+
+    # cleaning: drop duplicates
+    df = df.dropDuplicates()
+
+    numerics = get_numeric_columns(df)
+
+    # impute numeric nulls
+    df = impute_numeric_median(df, numerics)
+
+    # cap outliers using IQR bounds
+    for c in numerics:
+        lower, upper = iqr_outlier_bounds(df, c)
+        if lower is None or upper is None:
+            continue
+        df = df.withColumn(
+            c,
+            F.when(F.col(c) < lower, F.lit(lower))
+             .when(F.col(c) > upper, F.lit(upper))
+             .otherwise(F.col(c))
+        )
+
+    after = summarize_df(df)
+
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    csv_out = os.path.join(out_dir, f"{base}_cleaned.csv")
+    json_out = os.path.join(out_dir, f"{base}_quality.json")
+
+    save_single_csv_from_df(df, csv_out)
+
+    report = {
+        "file": src_path,
+        "before": before,
+        "after": after,
+        "nulls_above_threshold": nulls,
+        "duplicates": dups,
+    }
+    with open(json_out, "w") as f:
+        json.dump(report, f, indent=2, default=str)
+
+    return {"csv": csv_out, "report": json_out}
+
+
+def run_all_samples(out_dir: str = "data/processed"):
+    spark = create_spark()
+    results = {}
+    errors = {}
+
+    # discover files
+    csvs = sorted(glob.glob("data/samples/*.csv"))
+    jsons = sorted(glob.glob("data/samples/*.json"))
+    parquets = sorted(glob.glob("data/samples/*.parquet"))
+
+    # helper to read by type
+    def read_csv(p):
+        return spark.read.option("header", "true").option("inferSchema", "true").csv(p)
+
+    def read_json(p):
+        return spark.read.option("multiLine", "true").json(p)
+
+    def read_parquet(p):
+        return spark.read.parquet(p)
+
+    # process a list with a reader function
+    def process_list(paths, reader):
+        for p in paths:
+            try:
+                df = reader(p)
+                results[p] = process_df_and_write(df, p, out_dir=out_dir)
+            except Exception as e:
+                # record error and continue
+                errors[p] = str(e)
+
+    # process CSV, JSON, Parquet
+    process_list(csvs, read_csv)
+    process_list(jsons, read_json)
+    process_list(parquets, read_parquet)
+
+    spark.stop()
+    return {"results": results, "errors": errors}
+
+
+if __name__ == "__main__":
+    out = run_all_samples()
+    print("Processed samples (outputs):")
+    for k, v in out["results"].items():
+        print(k, "->", v)
+    if out["errors"]:
+        print("\nErrors encountered:")
+        for k, v in out["errors"].items():
+            print(k, ":", v)
+
+
+# # # --- This is the secon set of code. IGNORE ---
+# from pyspark.sql import DataFrame
+
+# def summarize_df(df, n_sample: int = 3) -> dict:
+#     """
+#     Return a small summary dict with row count, column list and sample rows.
+#     Sample rows are converted to plain Python types (strings) so they are JSON-serializable.
+#     """
+#     total = df.count()
+#     cols = df.columns
+#     samples = []
+#     for r in df.limit(n_sample).collect():
+#         row_vals = []
+#         for v in r:
+#             if v is None:
+#                 row_vals.append(None)
+#             else:
+#                 # try datetime-like isoformat, otherwise fallback to str()
+#                 try:
+#                     iso = v.isoformat()
+#                     row_vals.append(iso)
+#                 except Exception:
+#                     row_vals.append(str(v))
+#         samples.append(row_vals)
+
+#     summary = {"rows": int(total), "columns": cols, "sample_rows": samples}
+#     return summary
+
+# # # ---this is the original code IGNORE ---
+# # Simple cleaning pipeline (MVP)
+# # Reads CSVs from data/samples/*.csv (if none exists, uses an inline sample)
+# # Writes cleaned CSV to data/processed/<basename>_cleaned.csv
+# # Writes a JSON summary to data/processed/<basename>_quality.json
+
+# import glob, os, json, shutil
+# from pathlib import Path
+# from pyspark.sql import SparkSession
+# from pyspark.sql import functions as F
+
+# from data_quality.validators import (
+#     check_nulls,
+#     check_duplicates,
+#     iqr_outlier_bounds,
+#     impute_numeric_median,
+#     get_numeric_columns,
+# )
+
+# def create_spark(app_name: str = "CleaningPipeline"):
+#     return (
+#         SparkSession.builder.master("local[1]").appName(app_name)
+#         .config("spark.driver.bindAddress", "127.0.0.1")
+#         .config("spark.driver.host", "127.0.0.1")
+#         .getOrCreate()
+#     )
+
+# def summarize_df(df, n_sample: int = 3):
+#     total = df.count()
+#     cols = df.columns
+#     samples = [tuple(r) for r in df.limit(n_sample).collect()]
+#     return {"rows": int(total), "columns": cols, "sample_rows": samples}
+
+# def save_single_csv_from_df(df, out_path):
+#     tmp_dir = out_path + ".tmp"
+#     df.coalesce(1).write.mode("overwrite").option("header", "true").csv(tmp_dir)
+#     parts = glob.glob(os.path.join(tmp_dir, "part-*"))
+#     if parts:
+#         os.replace(parts[0], out_path)
+#     else:
+#         # fallback to parquet
+#         df.write.mode("overwrite").parquet(out_path + ".parquet")
+#     shutil.rmtree(tmp_dir, ignore_errors=True)
+
+# def process_csv(spark, path, out_dir="data/processed"):
+#     base = Path(path).stem
+#     df = spark.read.option("header", "true").option("inferSchema", "true").csv(path)
+#     before = summarize_df(df)
+
+#     # validators
+#     nulls = check_nulls(df, threshold=0.2)
+#     dups = check_duplicates(df, subset=None)
+
+#     # cleaning: drop duplicates
+#     df = df.dropDuplicates()
+
+#     numerics = get_numeric_columns(df)
+
+#     # impute numeric nulls
+#     df = impute_numeric_median(df, numerics)
+
+#     # cap outliers using IQR bounds
+#     for c in numerics:
+#         lower, upper = iqr_outlier_bounds(df, c)
+#         if lower is None or upper is None:
+#             continue
+#         df = df.withColumn(
+#             c,
+#             F.when(F.col(c) < lower, F.lit(lower))
+#              .when(F.col(c) > upper, F.lit(upper))
+#              .otherwise(F.col(c))
+#         )
+
+#     after = summarize_df(df)
+
+#     Path(out_dir).mkdir(parents=True, exist_ok=True)
+#     csv_out = os.path.join(out_dir, f"{base}_cleaned.csv")
+#     json_out = os.path.join(out_dir, f"{base}_quality.json")
+
+#     save_single_csv_from_df(df, csv_out)
+
+#     report = {
+#         "file": path,
+#         "before": before,
+#         "after": after,
+#         "nulls_above_threshold": nulls,
+#         "duplicates": dups,
+#     }
+#     with open(json_out, "w") as f:
+#         json.dump(report, f, indent=2)
+
+#     return {"csv": csv_out, "report": json_out}
+
+# def run_all_samples():
+#     spark = create_spark()
+#     sample_paths = sorted(glob.glob("data/samples/*.csv"))
+#     results = {}
+#     if not sample_paths:
+#         # fallback: process inline sample
+#         df = spark.createDataFrame(
+#             [("sensor1", 100, 65.5), ("sensor2", 150, None), ("sensor3", 120, 68.5)],
+#             schema=["sensor_id", "count", "temperature"],
+#         )
+#         Path("data/processed").mkdir(parents=True, exist_ok=True)
+#         tmp_file = "data/processed/inline_sample_cleaned.csv"
+#         save_single_csv_from_df(df, tmp_file)
+#         results["inline"] = {"csv": tmp_file, "report": None}
+#     else:
+#         for p in sample_paths:
+#             results[p] = process_csv(spark, p)
+#     spark.stop()
+#     return results
+
+# if __name__ == "__main__":
+#     out = run_all_samples()
+#     print("Processed samples (outputs):")
+#     for k,v in out.items():
+#         print(k, "->", v)

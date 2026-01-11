@@ -1,14 +1,98 @@
 {
   "file": "data/samples/traffic_sample.csv",
   "before": {
-    "rows": 3,
+    "rows": 500,
     "columns": [
       "sensor_id",
       "timestamp",
-      "count",
-      "speed"
+      "location_lat",
+      "location_lon",
+      "vehicle_count",
+      "avg_speed",
+      "congestion_level",
+      "road_type"
     ],
     "sample_rows": [
       [
-        "sensorA",
-        
+        "TRAFFIC_003",
+        "2026-01-04T01:39:26.712280",
+        "39.994546889470804",
+        "-75.15878485055464",
+        "50",
+        "49.22",
+        "Critical",
+        "Main Street"
+      ],
+      [
+        "TRAFFIC_006",
+        "2026-01-05T00:39:26.712303",
+        "39.94164075651462",
+        "-75.14205586940092",
+        "406",
+        "62.87",
+        "Critical",
+        "Main Street"
+      ],
+      [
+        "TRAFFIC_000",
+        "2026-01-02T19:39:26.712309",
+        "39.92581673937803",
+        "-75.11199193892674",
+        "418",
+        "60.9",
+        "High",
+        "Highway"
+      ]
+    ]
+  },
+  "after": {
+    "rows": 500,
+    "columns": [
+      "sensor_id",
+      "timestamp",
+      "location_lat",
+      "location_lon",
+      "vehicle_count",
+      "avg_speed",
+      "congestion_level",
+      "road_type"
+    ],
+    "sample_rows": [
+      [
+        "TRAFFIC_007",
+        "2026-01-01T05:39:26.712839",
+        "39.977205974956895",
+        "-75.13045568862566",
+        "141.0",
+        "43.81",
+        "High",
+        "Side Street"
+      ],
+      [
+        "TRAFFIC_007",
+        "2025-12-29T20:39:26.712848",
+        "39.991241221977624",
+        "-75.18172511752779",
+        "405.0",
+        "36.67",
+        "Low",
+        "Highway"
+      ],
+      [
+        "TRAFFIC_009",
+        "2025-12-31T04:39:26.712339",
+        "39.94530967821629",
+        "-75.13356530596616",
+        "440.0",
+        "64.91",
+        "High",
+        "Side Street"
+      ]
+    ]
+  },
+  "nulls_above_threshold": {},
+  "duplicates": {
+    "dup_count": 0,
+    "sample": []
+  }
+}
